@@ -18,7 +18,7 @@ python setup.py install
 
 You will need cairo and gdk-pixbuf-2.0 development packages.
 
-This package also provide the required files for building a Debian/Ubuntu
+This package also provides the required files for building a Debian/Ubuntu
 package.
 
 = Usage with TileCache =
