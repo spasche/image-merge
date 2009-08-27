@@ -1,0 +1,14 @@
+Source: image-merge
+Section: python
+Priority: optional
+Build-Depends: debhelper, python-central, python-all-dev, python-all, libcairo2-dev, cdbs, libgtk2.0-dev
+Maintainer: Sylvain Pasche <sylvain.pasche@gmail.com>
+Standards-Version: 3.7.2
+XS-Python-Version: all
+
+Package: python-image-merge
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${python:Depends}
+XB-Python-Version: ${python:Versions}
+Description: Library to merge images together.
+ Create the a single PNG image by layering multiple images on top of each other.
