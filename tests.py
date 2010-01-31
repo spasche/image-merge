@@ -4,10 +4,13 @@
 
 __author__ = "Sylvain Pasche (sylvain.pasche@gmail.com)"
 
-import random
-import unittest
-import os
 import itertools
+import os
+import random
+import StringIO
+import unittest
+
+import Image
 
 from image_merge import merge
 
@@ -30,11 +33,78 @@ class TestImageMerge(unittest.TestCase):
 
     def testMergeImage(self):
         img = merge(self._getImg("img1.png"))
-        self.assertEquals(img[:4], '\x89PNG', "Result image is not a png")
+        self.assertPNGImage(img)
 
         img = merge(self._getImg("img1.png"), self._getImg("img2.png"))
         self.assertPNGImage(img)
-        # TODO: pixel test that the result is correct
+
+    def testMergeImagePixels(self):
+        def merge_pixels(input_pixels, expected_output_pixel):
+            images = []
+            for p in input_pixels:
+                pil_img = Image.new("RGBA", (1, 1))
+                pil_img.putdata([p])
+
+                buffer = StringIO.StringIO()
+                pil_img.save(buffer, "PNG")
+                buffer.seek(0)
+                images.append(buffer.read())
+
+            result = merge(*images)
+            self.assertPNGImage(result)
+            pil_result = Image.open(StringIO.StringIO(result))
+
+            self.assertEquals(pil_result.getdata()[0], expected_output_pixel)
+
+        merge_pixels([
+            (0, 0, 0, 255), # black opaque
+        ],
+            (0, 0, 0, 255)
+        )
+        merge_pixels([
+            (255, 255, 255, 255), # white opaque
+            (0, 0, 0, 0), # fully transparent
+        ],
+            (255, 255, 255, 255),
+        )
+        merge_pixels([
+            (255, 255, 255, 255), # white opaque
+            (0, 0, 0, 0), # fully transparent
+            (0, 0, 0, 0), # fully transparent
+            (0, 0, 0, 0), # fully transparent
+        ],
+            (255, 255, 255, 255),
+        )
+        merge_pixels([
+            (255, 255, 255, 255), # white opaque
+            (0, 0, 0, 255), # black opaque
+        ],
+            (0, 0, 0, 255)
+        )
+        merge_pixels([
+            (255, 255, 255, 255), # white opaque
+            (0, 0, 0, 255), # black opaque
+            (0, 0, 0, 255), # black opaque
+            (0, 0, 0, 255), # black opaque
+            (0, 0, 0, 255), # black opaque
+            (0, 0, 0, 255), # black opaque
+        ],
+            (0, 0, 0, 255)
+        )
+
+        merge_pixels([
+            (0, 202, 0, 155),
+            (0, 0, 0, 0),
+        ],
+            (0, 202, 0, 155)
+        )
+
+        merge_pixels([
+            (0, 0, 0, 0),
+            (0, 152, 253, 155),
+        ],
+            (0, 151, 253, 155)
+        )
 
     def testImageMergeLimit(self):
         MAX_IMAGES = 1024

@@ -1,3 +1,10 @@
+image-merge (0.2) unstable; urgency=low
+
+  * Unmultiply alpha when converting Cairo surface to gdk-pixbuf.
+  * New unit tests.
+
+ -- Sylvain Pasche <sylvain.pasche@gmail.com>  Sun, 31 Jan 2010 12:00:00 +0000
+
 image-merge (0.1) unstable; urgency=low
 
   * Initial release

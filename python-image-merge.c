@@ -39,11 +39,20 @@ cairo_surface_to_pixbuf(cairo_surface_t *surface)
     guint32 *row = (guint32*)(data + y * stride);
 
     for (x = 0; x < width; x++) {
-      output_pixel[3] = (row[x] & 0xff000000) >> 24;
-      output_pixel[0] = (row[x] & 0x00ff0000) >> 16;
-      output_pixel[1] = (row[x] & 0x0000ff00) >> 8;
-      output_pixel[2] = (row[x] & 0x000000ff);
+      uint32_t pixel;
+      uint8_t  alpha;
 
+      memcpy (&pixel, &row[x], sizeof (uint32_t));
+      alpha = (pixel & 0xff000000) >> 24;
+
+      if (alpha == 0) {
+          output_pixel[0] = output_pixel[1] = output_pixel[2] = output_pixel[3] = 0;
+      } else {
+          output_pixel[0] = (((pixel & 0xff0000) >> 16) * 255 + alpha / 2) / alpha;
+          output_pixel[1] = (((pixel & 0x00ff00) >>  8) * 255 + alpha / 2) / alpha;
+          output_pixel[2] = (((pixel & 0x0000ff) >>  0) * 255 + alpha / 2) / alpha;
+          output_pixel[3] = alpha;
+      }
       output_pixel += 4;
     }
   }
@@ -80,8 +89,8 @@ read_func(PNGBuffer *buf, unsigned char *data, unsigned int length)
  *
  * Output:
  *  @return pointer to the merged PNG image raw bytes, or NULL in case of error
- *          The caller must call g_free on the buffer after use
- *  buffer_size - size of the returned image buffer in bytes
+ *          The caller must call g_free on the buffer after use.
+ *  buffer_size - size of the returned image buffer in bytes.
  *  error_msg - If this function returns a NULL pointer in case of an error,
  *              This pointer contains the error message.
  *              The caller must call g_free on the pointer after use.
@@ -89,84 +98,84 @@ read_func(PNGBuffer *buf, unsigned char *data, unsigned int length)
 static gchar*
 do_merge(gchar* images[], int sizes[], int image_count, gsize *buffer_size, gchar **error_msg)
 {
-    cairo_t *cr = NULL;
-    cairo_surface_t *argb32_temp = NULL, *argb32 = NULL;
-    cairo_status_t status;
-    gchar* buffer = NULL;
-    int i;
-    GError *error = NULL;
-    GdkPixbuf *pixbuf = NULL;
-    int image_width = 0, image_height = 0;
-    PNGBuffer png_buf;
+  cairo_t *cr = NULL;
+  cairo_surface_t *argb32_temp = NULL, *argb32 = NULL;
+  cairo_status_t status;
+  gchar* buffer = NULL;
+  int i;
+  GError *error = NULL;
+  GdkPixbuf *pixbuf = NULL;
+  int image_width = 0, image_height = 0;
+  PNGBuffer png_buf;
 
-    for (i = 0; i < image_count; i++) {
-      png_buf.pos = 0;
-      png_buf.len = sizes[i];
-      png_buf.data = (char*)images[i];
-      
-      argb32_temp = cairo_image_surface_create_from_png_stream(
-                      (cairo_read_func_t)read_func, (void *)&png_buf);
-      
-      status = cairo_surface_status(argb32_temp);
-      if (status) {
-        *error_msg = g_strdup_printf("Failed to load image: %s\n",
-                                     cairo_status_to_string (status));
+  for (i = 0; i < image_count; i++) {
+    png_buf.pos = 0;
+    png_buf.len = sizes[i];
+    png_buf.data = (char*)images[i];
+
+    argb32_temp = cairo_image_surface_create_from_png_stream(
+                    (cairo_read_func_t)read_func, (void *)&png_buf);
+
+    status = cairo_surface_status(argb32_temp);
+    if (status) {
+      *error_msg = g_strdup_printf("Failed to load image: %s\n",
+                                   cairo_status_to_string (status));
+      cairo_surface_destroy(argb32);
+      cairo_destroy(cr);
+      return NULL;
+    }
+    if (!argb32) {
+      image_width = cairo_image_surface_get_width(argb32_temp);
+      image_height = cairo_image_surface_get_height(argb32_temp);
+      argb32 = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+                                          image_width, image_height);
+
+      if (!argb32) {
+        *error_msg = g_strdup("Failed to create surface");
+        cairo_surface_destroy(argb32_temp);
         cairo_surface_destroy(argb32);
         cairo_destroy(cr);
         return NULL;
       }
-      if (!argb32) {
-        image_width = cairo_image_surface_get_width(argb32_temp);
-        image_height = cairo_image_surface_get_height(argb32_temp);
-        argb32 = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
-                                            image_width, image_height);
+      cr = cairo_create (argb32);
+    } else {
+      if (image_width != cairo_image_surface_get_width(argb32_temp) ||
+          image_height != cairo_image_surface_get_height(argb32_temp)) {
 
-        if (!argb32) {
-          *error_msg = g_strdup("Failed to create surface");
-          cairo_surface_destroy(argb32_temp);
-          cairo_surface_destroy(argb32);
-          cairo_destroy(cr);
-          return NULL;
-        }
-        cr = cairo_create (argb32);
-      } else {
-        if (image_width != cairo_image_surface_get_width(argb32_temp) ||
-            image_height != cairo_image_surface_get_height(argb32_temp)) {
-
-          *error_msg = g_strdup("Input images must be of the same size");
-          cairo_surface_destroy(argb32_temp);
-          cairo_surface_destroy(argb32);
-          cairo_destroy(cr);
-          return NULL;
-        }
+        *error_msg = g_strdup("Input images must be of the same size");
+        cairo_surface_destroy(argb32_temp);
+        cairo_surface_destroy(argb32);
+        cairo_destroy(cr);
+        return NULL;
       }
-      cairo_set_source_surface(cr, argb32_temp, 0, 0);
-      cairo_paint(cr);
-      cairo_surface_destroy(argb32_temp);
     }
+    cairo_set_source_surface(cr, argb32_temp, 0, 0);
+    cairo_paint(cr);
+    cairo_surface_destroy(argb32_temp);
+  }
 
-    cairo_destroy (cr);
+  cairo_destroy (cr);
 
-    pixbuf = cairo_surface_to_pixbuf(argb32);
-    if (!pixbuf) {
-      *error_msg = g_strdup("NULL returned from cairo_surface_to_pixbuf");
-      cairo_surface_destroy(argb32);
-      return NULL;
-    }
+  pixbuf = cairo_surface_to_pixbuf(argb32);
+  if (!pixbuf) {
+    *error_msg = g_strdup("NULL returned from cairo_surface_to_pixbuf");
     cairo_surface_destroy(argb32);
+    return NULL;
+  }
+  cairo_surface_destroy(argb32);
 
-    if (!gdk_pixbuf_save_to_buffer(pixbuf, &buffer, buffer_size, "png", &error,
-                          "compression", PNG_COMPRESSION_LEVEL, NULL)) {
-      *error_msg = g_strdup_printf("cairo_surface_to_pixbuf: %s",
-                                   error->message);
-      g_error_free(error);
-      g_free(buffer);
-      g_object_unref(pixbuf);
-      return NULL;
-    }
-
+  if (!gdk_pixbuf_save_to_buffer(pixbuf, &buffer, buffer_size, "png", &error,
+                                 "compression", PNG_COMPRESSION_LEVEL, NULL)) {
+    *error_msg = g_strdup_printf("do_merge: %s",
+                                 error->message);
+    g_error_free(error);
+    g_free(buffer);
     g_object_unref(pixbuf);
-    return buffer;
+    return NULL;
+  }
+
+  g_object_unref(pixbuf);
+  return buffer;
 }
 
 static PyObject *
@@ -192,7 +201,7 @@ image_merge_merge(PyObject *self, PyObject *args)
       PyErr_Format(PyExc_SystemError, "Too many images to merge. Max is %d", MAX_IMAGES);
       return NULL;
     }
-    
+
     if (PyString_AsStringAndSize(item, &images[count], &size) < 0) {
       Py_DECREF(item);
       Py_DECREF(it);
