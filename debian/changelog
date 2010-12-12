@@ -1,3 +1,9 @@
+image-merge (0.3) unstable; urgency=low
+
+  * New "preserve_colors" option.
+
+ -- Sylvain Pasche <sylvain.pasche@gmail.com>  Fri, 10 Dec 2010 12:00:00 +0000
+
 image-merge (0.2) unstable; urgency=low
 
   * Unmultiply alpha when converting Cairo surface to gdk-pixbuf.

@@ -22,6 +22,9 @@ class TestImageMerge(unittest.TestCase):
     def testInvalidParams(self):
         self.assertRaises(TypeError, lambda: merge(1))
         self.assertRaises(TypeError, lambda: merge("foo", "bar", []))
+        self.assertRaises(SystemError, lambda: merge([]))
+        self.assertRaises(TypeError, lambda: merge([1]))
+        self.assertRaises(TypeError, lambda: merge(["foo", "bar", []]))
 
     def _getImg(self, file_name):
         """Returns a string of the image file named file_name in the test-data
@@ -32,14 +35,14 @@ class TestImageMerge(unittest.TestCase):
         self.assertEquals(data[:4], '\x89PNG', "Result image is not a png")
 
     def testMergeImage(self):
-        img = merge(self._getImg("img1.png"))
+        img = merge([self._getImg("img1.png")])
         self.assertPNGImage(img)
 
-        img = merge(self._getImg("img1.png"), self._getImg("img2.png"))
+        img = merge([self._getImg("img1.png"), self._getImg("img2.png")])
         self.assertPNGImage(img)
 
     def testMergeImagePixels(self):
-        def merge_pixels(input_pixels, expected_output_pixel):
+        def merge_pixels(input_pixels, preserve_colors, expected_output_pixel):
             images = []
             for p in input_pixels:
                 pil_img = Image.new("RGBA", (1, 1))
@@ -50,7 +53,7 @@ class TestImageMerge(unittest.TestCase):
                 buffer.seek(0)
                 images.append(buffer.read())
 
-            result = merge(*images)
+            result = merge(images, preserve_colors=preserve_colors)
             self.assertPNGImage(result)
             pil_result = Image.open(StringIO.StringIO(result))
 
@@ -58,13 +61,13 @@ class TestImageMerge(unittest.TestCase):
 
         merge_pixels([
             (0, 0, 0, 255), # black opaque
-        ],
+        ], False,
             (0, 0, 0, 255)
         )
         merge_pixels([
             (255, 255, 255, 255), # white opaque
             (0, 0, 0, 0), # fully transparent
-        ],
+        ], False,
             (255, 255, 255, 255),
         )
         merge_pixels([
@@ -72,13 +75,13 @@ class TestImageMerge(unittest.TestCase):
             (0, 0, 0, 0), # fully transparent
             (0, 0, 0, 0), # fully transparent
             (0, 0, 0, 0), # fully transparent
-        ],
+        ], False,
             (255, 255, 255, 255),
         )
         merge_pixels([
             (255, 255, 255, 255), # white opaque
             (0, 0, 0, 255), # black opaque
-        ],
+        ], False,
             (0, 0, 0, 255)
         )
         merge_pixels([
@@ -88,22 +91,39 @@ class TestImageMerge(unittest.TestCase):
             (0, 0, 0, 255), # black opaque
             (0, 0, 0, 255), # black opaque
             (0, 0, 0, 255), # black opaque
-        ],
+        ], False,
             (0, 0, 0, 255)
         )
 
         merge_pixels([
             (0, 202, 0, 155),
             (0, 0, 0, 0),
-        ],
+        ], False,
             (0, 202, 0, 155)
         )
 
         merge_pixels([
             (0, 0, 0, 0),
             (0, 152, 253, 155),
-        ],
+        ], False,
             (0, 151, 253, 155)
+        )
+
+        # Tests preserve_colors flag.
+
+        # Pixels are composed if preserve_colors if False
+        merge_pixels([
+            (156, 156, 156, 156),
+            (156, 156, 156, 156),
+        ], False,
+            (155, 155, 155, 217)
+        )
+        # ... but not if preserve_colors is true (minus some rounding).
+        merge_pixels([
+            (156, 156, 156, 156),
+            (156, 156, 156, 156),
+        ], True,
+            (155, 155, 155, 156),
         )
 
     def testImageMergeLimit(self):
@@ -114,23 +134,23 @@ class TestImageMerge(unittest.TestCase):
         if True:
             images = list(itertools.repeat(
                           self._getImg("img1.png"), MAX_IMAGES))
-            self.assertPNGImage(merge(*images))
+            merge(images)
 
         def doTest():
             images = list(itertools.repeat(
                           self._getImg("img1.png"), MAX_IMAGES + 1))
-            merge(*images)
+            merge(images)
         self.assertRaises(SystemError, doTest)
 
     def testUnsupportedFormat(self):
-        self.assertRaises(SystemError, lambda: merge("foo"))
+        self.assertRaises(SystemError, lambda: merge(["foo"]))
         def doTest():
-            merge(self._getImg("img1.png"), "foo")
+            merge([self._getImg("img1.png"), "foo"])
         self.assertRaises(SystemError, doTest)
 
     def testInvalidImageSize(self):
         def doTest():
-            merge(self._getImg("img1.png"), self._getImg("img1-10x10.png"))
+            merge([self._getImg("img1.png"), self._getImg("img1-10x10.png")])
         self.assertRaises(SystemError, doTest)
 
 if __name__ == '__main__':

@@ -25,7 +25,7 @@ package.
 
 You will need a TileCache version that is able to use this module.
 Such a version is available in the repository:
-http://github.com/fredj/tilecache
+https://github.com/camptocamp/tilecache
 
 This TileCache version will automatically use this module if it is available
 in the Python path. You don't need to configure anything.
@@ -33,10 +33,14 @@ in the Python path. You don't need to configure anything.
 = Usage with Python =
 
 import image_merge
-merged_image = image_merge.merge(image1, image2, ...)
+merged_image = image_merge.merge([image1, image2, ...], preserve_colors=False)
 
-Where image1, image2, imagen are strings with the PNG image bytes to be merged
-together (image2 will be placed above image1 and so on).
+Where image1, image2, ..., imageN are strings with the PNG image bytes to be
+merged together (image2 will be placed above image1 and so on).
+
+If the preserve_colors keyword argument is True (defaults to False), do not
+compose colors if the source and destination colors have the same rgba values.
+
 The function returns a string containing the merged PNG image.
 
 = Development notes =

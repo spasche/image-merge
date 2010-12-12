@@ -80,12 +80,40 @@ read_func(PNGBuffer *buf, unsigned char *data, unsigned int length)
 }
 
 /**
+ * Sets pixels of the given target surface to black full transparent if they
+ * have the same value as pixels in the source surface.
+ */
+static void clear_target_if_same_color(cairo_surface_t *target, cairo_surface_t *source) {
+  unsigned char *target_data = cairo_image_surface_get_data(target);
+  unsigned char *source_data = cairo_image_surface_get_data(source);
+  int width = cairo_image_surface_get_width(target);
+  int height = cairo_image_surface_get_height(target);
+  int stride = cairo_image_surface_get_stride(target);
+  int x, y;
+  guint32 *t, *s;
+
+  for (y = 0; y < height; y++) {
+
+    t = (guint32*)(target_data + y * stride);
+    s = (guint32*)(source_data + y * stride);
+
+    for (x = 0; x < width; x++) {
+      if (t[x] == s[x]) {
+        t[x] = 0;
+      }
+    }
+  }
+}
+
+/**
  * Create the a single PNG image by layering multiple images on top of each other.
  *
  * Input:
  *  images - Array of gchar* pointer to raw PNG image bytes for each image.
  *  sizes - Size in bytes of the image in the images array at the same index.
  *  image_count - Number of images in the images and sizes arrays.
+ *  preserve_colors - If true, do not compose colors if the source and destination
+ *                    colors have the same rgba values.
  *
  * Output:
  *  @return pointer to the merged PNG image raw bytes, or NULL in case of error
@@ -96,7 +124,8 @@ read_func(PNGBuffer *buf, unsigned char *data, unsigned int length)
  *              The caller must call g_free on the pointer after use.
  */
 static gchar*
-do_merge(gchar* images[], int sizes[], int image_count, gsize *buffer_size, gchar **error_msg)
+do_merge(gchar* images[], int sizes[], int image_count, int preserve_colors,
+         gsize *buffer_size, gchar **error_msg)
 {
   cairo_t *cr = NULL;
   cairo_surface_t *argb32_temp = NULL, *argb32 = NULL;
@@ -150,6 +179,9 @@ do_merge(gchar* images[], int sizes[], int image_count, gsize *buffer_size, gcha
       }
     }
     cairo_set_source_surface(cr, argb32_temp, 0, 0);
+    if (preserve_colors) {
+      clear_target_if_same_color(cairo_get_target(cr), argb32_temp);
+    }
     cairo_paint(cr);
     cairo_surface_destroy(argb32_temp);
   }
@@ -179,41 +211,56 @@ do_merge(gchar* images[], int sizes[], int image_count, gsize *buffer_size, gcha
 }
 
 static PyObject *
-image_merge_merge(PyObject *self, PyObject *args)
+image_merge_merge(PyObject *self, PyObject *args, PyObject *keywds)
 {
-  PyObject *it, *item;
+  PyObject *images_obj, *image_obj;
+  int preserve_colors = 0;
   gchar* images[MAX_IMAGES];
   Py_ssize_t size;
   int sizes[MAX_IMAGES];
-  int count = 0;
+  int count = 0, i;
   gchar *result_buffer = NULL;
   gsize buffer_size = 0;
   gchar *error_msg = NULL;
   PyObject *res;
 
-  it = PyObject_GetIter(args);
-  if (it == NULL) {
+  static char *kwlist[] = {"images", "preserve_colors", NULL};
+
+  if (!PyArg_ParseTupleAndKeywords(args, keywds, "O|b", kwlist, &images_obj, &preserve_colors)) {
+    return NULL;
+  }
+  if (images_obj == NULL || !PyList_Check(images_obj)) {
+    PyErr_SetString(PyExc_TypeError, "First argument must be a list.");
     return NULL;
   }
 
-  while ((item = PyIter_Next(it))) {
-    if (count >= sizeof(images)/sizeof(char*)) {
-      PyErr_Format(PyExc_SystemError, "Too many images to merge. Max is %d", MAX_IMAGES);
-      return NULL;
-    }
-
-    if (PyString_AsStringAndSize(item, &images[count], &size) < 0) {
-      Py_DECREF(item);
-      Py_DECREF(it);
-      return NULL;
-    }
-    sizes[count] = (unsigned int)size;
-
-    Py_DECREF(item);
-    count++;
+  count = PyList_Size(images_obj);
+  if (count == 0) {
+    PyErr_Format(PyExc_SystemError, "No image to merge");
+    return NULL;
+  }
+  if (count > MAX_IMAGES) {
+    PyErr_Format(PyExc_SystemError, "Too many images to merge. Max is %d", MAX_IMAGES);
+    return NULL;
   }
 
-  result_buffer = do_merge(images, sizes, count, &buffer_size, &error_msg);
+  for (i = 0; i < count; i++) {
+    image_obj = PyList_GetItem(images_obj, i);
+
+    if (!PyString_Check(image_obj)) {
+      PyErr_SetString(PyExc_TypeError, "Image data should be a string");
+      Py_DECREF(images_obj);
+      return NULL;
+    }
+    if (PyString_AsStringAndSize(image_obj, &images[i], &size) < 0) {
+      PyErr_Format(PyExc_SystemError, "Too many images to merge. Max is %d", MAX_IMAGES);
+      Py_DECREF(images_obj);
+      return NULL;
+    }
+    sizes[i] = (unsigned int)size;
+  }
+
+  result_buffer = do_merge(images, sizes, count, preserve_colors, &buffer_size, &error_msg);
   if (!result_buffer) {
     if (error_msg) {
       PyErr_Format(PyExc_SystemError, "Image merge failure: %s", error_msg);
@@ -221,10 +268,10 @@ image_merge_merge(PyObject *self, PyObject *args)
       PyErr_SetString(PyExc_SystemError, "Image merge failure");
     }
     g_free(error_msg);
-    Py_DECREF(it);
+    Py_DECREF(images_obj);
     return NULL;
   }
-  Py_DECREF(it);
+  Py_DECREF(images_obj);
 
   res = Py_BuildValue("s#", result_buffer, buffer_size);
   g_free(result_buffer);
@@ -232,7 +279,7 @@ image_merge_merge(PyObject *self, PyObject *args)
 }
 
 static PyMethodDef ImageMergeMethods[] = {
-  {"merge",  image_merge_merge, METH_VARARGS,
+  {"merge", (PyCFunction)image_merge_merge, METH_VARARGS | METH_KEYWORDS,
    "Merge images string together (bottom to top) and returns a string with the"
    " resulting image in PNG format"},
   {NULL, NULL, 0, NULL}
